@@ -1,14 +1,21 @@
-To use the project, a `neo4j` database must be available to you, the default password in the programm is `password`
-To run a neo4j database, run
-```
-docker run \            
+# graph-blockren
+
+A etherum transaction vizualiser (probably useful for ctf's/regular web3 osint i guess)
+
+## Installing
+
+```bash
+$ docker run \            
     --publish=7474:7474 --publish=7687:7687 \
     --volume=$HOME/.neo4j/data:/data \
     -d neo4j
+$ pip3 install -r requirements.txt
 ```
-Then go to http://localhost:7474/browser/ and change the password to `password` (or whatever you want)
 
-Example:
+ps: After launching the neo4j database, change it's password in the web-brower (http://localhost:7474/browser/) to `password` (or whatever fits you)
+
+## Running
+
 ```bash
 $ python3 main.py fetch -c https://rpc.sepolia.org/ -r 3529374-3529379
 Fetching a total of 6 block (from 3529374 to 3529379)
@@ -20,6 +27,19 @@ Importing 186 transactions
 Done
 ```
 
-Then go to http://localhost:7474/browser/ and query with `match (n) return n`
-You should see smth like this
+Then go to http://localhost:7474/browser/ and query with `match (n) return n` for all results  
+
+Example output:  
+
+Above output (old)
+
 ![exampleimg](https://cdn.discordapp.com/attachments/462676451045408768/1117003294167011358/image.png)
+
+heroctf web3 osint graph (dev mode)
+
+![heroctf osint graph](https://media.discordapp.net/attachments/1106875011106611280/1117123099314376704/image.png)
+
+# TODO
+
+- Add some utility function such has fetching created contract address / detecting address that are contract
+- Allow to target specify block and not only a range
