@@ -39,6 +39,7 @@ heroctf web3 osint graph (dev mode) (put [this file](https://cdn.discordapp.com/
 
 # TODO
 
+- Check database connectivity
 - Add some utility function such has fetching created contract address / detecting address that are contract
 - Allow to target specify block and not only a range
 - .lower() every value that doesnt rely on casing for checksum
