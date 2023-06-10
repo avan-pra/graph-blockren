@@ -7,6 +7,7 @@ from web3.types import BlockData
 from tempfile import mkstemp
 from os import fdopen
 
+import hexbytes
 import pickle
 import argparse
 
@@ -49,8 +50,6 @@ def submit(tx: Transaction, sentence: str):
 def import_transaction(tx: Transaction, transaction):
 	"""
 	Receive a web3 transaction create a cypher sentence and execute it.
-	To avoid cypher injection we need to define every attribute by hand
-	instead of iterating over the transaction internal :(
 	"""
 
 	sentence = "MERGE (f:Address {addr: $from_addr})"
@@ -59,37 +58,22 @@ def import_transaction(tx: Transaction, transaction):
 	else:
 		sentence += "MERGE (t:Address:`Contract Creation` {addr: '0x0'})"
 	sentence += "CREATE (f)-[:INTERACTED_WITH {" \
-						"blockHash: $blockHash," \
-						"blockNumber: $blockNumber," \
-						"from: $from_addr," \
-						"gas: $gas," \
-						"gasPrice: $gasPrice," \
-						f"{'maxFeePerGas: $maxFeePerGas,' if transaction['value'] > 0 else ''}" \
-						f"{'maxPriorityFeePerGas: $maxPriorityFeePerGas,' if transaction['value'] > 0 else ''}"\
-						"hash: $hash," \
-						"input: $input," \
-						"nonce: $nonce," \
-						"to: $to_addr," \
-						"transactionIndex: $transactionIndex," \
-						"value: $value," \
-						"type: $type," \
-						"accessList: $accessList," \
-						"chainId: $chainId," \
-						"v: $v," \
-						"r: $r," \
-						"s: $s" \
-					"}]->(t)"
+
+	for key, value in transaction.items():
+		if type(value) == hexbytes.main.HexBytes:
+			sentence += f"{key}: '{value.hex()}'"
+		elif type(value) in [int, list]:
+			sentence += f"{key}: {value}"
+		else:
+			sentence += f"{key}: '{value}'"
+		if key != list(transaction)[-1]:
+			sentence += ", "
+
+	sentence += "}]->(t)"
 
 	return list (
 		tx.run(
-			sentence, from_addr=transaction['from'], to_addr=transaction['to'], blockHash=transaction['blockHash'].hex(),
-			blockNumber=transaction['blockNumber'], gas=transaction['gas'], gasPrice=transaction['gasPrice'],
-			maxFeePerGas=transaction['maxFeePerGas'] if transaction.get('maxFeePerGas') else "",
-			maxPriorityFeePerGas=transaction['maxPriorityFeePerGas'] if transaction.get('maxPriorityFeePerGas') else "",
-			hash=transaction['hash'].hex(), input=transaction['input'], nonce=transaction['nonce'],
-			transactionIndex=transaction['transactionIndex'], value=transaction['value'], type=transaction['type'],
-			accessList=transaction['accessList'] if transaction.get('accessList') else "",
-			chainId=transaction['chainId'], v=transaction['v'], r=transaction['r'].hex(), s=transaction['s'].hex()
+			sentence, from_addr=transaction['from'], to_addr=transaction['to']
 		)
 	)
 
@@ -114,10 +98,11 @@ def importf(args):
 
 			blockfile = open(args.file, 'rb')
 			blocklist: List[BlockData] = pickle.loads(blockfile.read())
-			print(f"Importing {[len(block) for block in blocklist]}")
+			print(f"Importing {sum([len(block['transactions']) for block in blocklist])} transactions")
 			for block in blocklist:
 				for transaction in block['transactions']:
 					session.execute_write(import_transaction, transaction)
+			print("Done")
 
 def argparse_wrapper():
 	parser = argparse.ArgumentParser(
