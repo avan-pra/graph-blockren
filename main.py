@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Dict
 from neo4j import GraphDatabase, Transaction, Result
 from web3 import Web3
 from web3.types import BlockData
@@ -11,8 +11,45 @@ import hexbytes
 import pickle
 import argparse
 
-class ChainGraph(GraphDatabase):
-	pass
+class Neo4JUtility:
+	@staticmethod
+	def stringify_properties(properties: Dict[str, str]) -> str:
+		sentence = ""
+		for key, value in properties.items():
+			if type(value) == hexbytes.main.HexBytes:
+				sentence += f"{key}: '{value.hex()}'"
+			elif type(value) in [list]:
+				sentence += f"{key}: {value}"
+			else:
+				sentence += f"{key}: '{value}'"
+			if key != list(properties)[-1]:
+				sentence += ", "
+		return sentence
+
+	@staticmethod
+	def create_node(labels: List[str], properties: Dict[str, str], alias="") -> str:
+
+		labelsstr = ''.join([f":{label}" for label in labels])
+		cleaned_properties = Neo4JUtility.stringify_properties(properties)
+
+		return f"CREATE ({alias}{labelsstr} {{{cleaned_properties}}})"
+
+	@staticmethod
+	def merge_node(labels: List[str], properties: Dict[str, str], alias="") -> str:
+
+		labelsstr = ''.join([f":{label}" for label in labels])
+		cleaned_properties = Neo4JUtility.stringify_properties(properties)
+
+		return f"MERGE ({alias}{labelsstr} {{{cleaned_properties}}})"
+
+	@staticmethod
+	def create_relationship(aliasfrom: str, labels: List[str], properties: Dict[str, str], aliasto) -> str:
+
+		labelsstr = ''.join([f":{label}" for label in labels])
+		cleaned_properties = Neo4JUtility.stringify_properties(properties)
+
+		return f"CREATE ({aliasfrom})-[{labelsstr} {{{cleaned_properties}}}]->({aliasto})"
+
 
 def fetch(args):
 	""" Responsible for the fetch function
@@ -52,31 +89,30 @@ def import_transaction(tx: Transaction, transaction):
 	Receive a web3 transaction create a cypher sentence and execute it.
 	"""
 
-	sentence = "MERGE (f:Address {addr: $from_addr})"
+	addrfrom = Neo4JUtility.merge_node(["Address"], {"addr": transaction['from']}, "f")
 	if transaction['to']:
-		sentence += "MERGE (t:Address {addr: $to_addr})"
+		addrto = Neo4JUtility.merge_node(["Address"], {"addr": transaction['to']}, "t")
 	else:
-		sentence += "MERGE (t:Address:`Contract Creation` {addr: '0x0'})"
-	sentence += "CREATE (f)-[:INTERACTED_WITH {" \
+		addrto = Neo4JUtility.merge_node(["Address", "`Contract Creation`"], {"addr": transaction['to']}, "t")
 
-	for key, value in transaction.items():
-		if type(value) == hexbytes.main.HexBytes:
-			sentence += f"{key}: '{value.hex()}'"
-		elif type(value) in [int, list]:
-			sentence += f"{key}: {value}"
-		else:
-			sentence += f"{key}: '{value}'"
-		if key != list(transaction)[-1]:
-			sentence += ", "
-
-	sentence += "}]->(t)"
+	relation = Neo4JUtility.create_relationship("f", ["INTERACTED_WITH"], transaction, "t")
 
 	return list (
-		tx.run(
-			sentence, from_addr=transaction['from'], to_addr=transaction['to']
-		)
+		tx.run(f"{addrfrom}{addrto}{relation}")
 	)
 
+def import_block(tx: Transaction, block: BlockData):
+
+	block = dict(block)
+	block.pop("transactions")
+	block.pop("withdrawals")
+
+	blocksentence = Neo4JUtility.create_node(["Block"], block, "t")
+	minersentence = Neo4JUtility.merge_node(["Address"], {'addr': block['miner']}, "f")
+	relation = Neo4JUtility.create_relationship("f", ["MINED"], {}, "t")
+	return list (
+		tx.run(f"{blocksentence}{minersentence}{relation}")
+	)
 
 def importf(args):
 	""" Responsible for the import functionality
@@ -100,6 +136,7 @@ def importf(args):
 			blocklist: List[BlockData] = pickle.loads(blockfile.read())
 			print(f"Importing {sum([len(block['transactions']) for block in blocklist])} transactions")
 			for block in blocklist:
+				session.execute_write(import_block, block)
 				for transaction in block['transactions']:
 					session.execute_write(import_transaction, transaction)
 			print("Done")
@@ -126,7 +163,6 @@ def main():
 		"import": importf
 	}
 	action_array[args.action](args)
-	pass
 
 if __name__ == "__main__":
 	main()
