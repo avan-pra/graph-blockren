@@ -17,7 +17,7 @@ ps: After launching the neo4j database, change it's password in the web-brower (
 ## Running
 
 ```bash
-$ python3 main.py fetch -c https://rpc.sepolia.org/ -r 3529374-3529379
+$ python3 main.py fetch -c https://rpc.sepolia.org/ -b 3529374-3529379
 Fetching a total of 6 block (from 3529374 to 3529379)
 Writing blocks to /tmp/tmpkzjtmsea
 Wrote 6 block (from 3529374 to 3529379) to /tmp/tmpkzjtmsea
@@ -40,6 +40,4 @@ heroctf web3 osint graph (dev mode) (put [this file](https://cdn.discordapp.com/
 # TODO
 
 - Check database connectivity
-- Add some utility function such has fetching created contract address / detecting address that are contract
-- Allow to target specify block and not only a range
 - .lower() every value that doesnt rely on casing for checksum

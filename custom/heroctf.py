@@ -21,9 +21,11 @@ def heroctf(args):
 			transactions = []
 			with open("./heroctftransactions") as f:
 				for line in f.readlines():
+					print(f"obtaining line {line}")
 					eval(f"transactions.append({line})")
 					# exit()
 			for transaction in transactions:
+				print(f"importing transaction {transaction.blockNumber}")
 				session.execute_write(import_transaction, transaction)
 			
 			session.execute_write(submit, "MATCH (n {addr: '0xf6c0513FA09189Bf08e1329E44A86dC85a37c176'}) SET n:`Initial address`")

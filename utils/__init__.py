@@ -1,23 +1,35 @@
 from typing import List, Dict
-from neo4j import Transaction
+from neo4j import Transaction, Result
+
+from web3 import Web3
 from web3.types import BlockData
 
 import hexbytes
-import argparse
 
+class ImportStorage:
+	def __init__(self) -> None:
+		self.rpc_url: str = ''
+		self.blocklist: List[BlockData] = []
 
 class Neo4JUtility:
 	@staticmethod
-	def stringify_properties(properties: Dict[str, str]) -> str:
-		sentence = ""
+	def clean_properties(properties: Dict[str, any]) -> Dict[str, str]:
 		for key, value in properties.items():
 			if type(value) == hexbytes.main.HexBytes:
-				sentence += f"{key}: '{value.hex()}'"
+				properties[key] = f"'{value.hex()}'"
 			elif type(value) in [list]:
-				sentence += f"{key}: {value}"
+				properties[key] = value
 			else:
-				sentence += f"{key}: '{value}'"
-			if key != list(properties)[-1]:
+				properties[key] = f"'{value}'"
+		return properties
+
+	@staticmethod
+	def stringify_properties(properties: Dict[str, any]) -> str:
+		sentence = ""
+		cleaned_properties = Neo4JUtility.clean_properties(properties.copy())
+		for key, value in cleaned_properties.items():
+			sentence += f"{key}: {value}"
+			if key != list(cleaned_properties)[-1]:
 				sentence += ", "
 		return sentence
 
@@ -27,31 +39,50 @@ class Neo4JUtility:
 		labelsstr = ''.join([f":{label}" for label in labels])
 		cleaned_properties = Neo4JUtility.stringify_properties(properties)
 
-		return f"CREATE ({alias}{labelsstr} {{{cleaned_properties}}})"
+		return f"CREATE ({alias}{labelsstr} {{{cleaned_properties}}})\n"
 
 	@staticmethod
-	def merge_node(labels: List[str], properties: Dict[str, str], alias="") -> str:
+	def merge_node(labels: List[str], properties, alias="") -> str:
 
 		labelsstr = ''.join([f":{label}" for label in labels])
 		cleaned_properties = Neo4JUtility.stringify_properties(properties)
 
-		return f"MERGE ({alias}{labelsstr} {{{cleaned_properties}}})"
+		return f"MERGE ({alias}{labelsstr} {{{cleaned_properties}}})\n"
 
 	@staticmethod
-	def create_relationship(aliasfrom: str, labels: List[str], properties: Dict[str, str], aliasto) -> str:
+	def create_relationship(aliasfrom: str, relationship_type: str, properties: Dict[str, str], aliasto) -> str:
 
-		labelsstr = ''.join([f":{label}" for label in labels])
 		cleaned_properties = Neo4JUtility.stringify_properties(properties)
 
-		return f"CREATE ({aliasfrom})-[{labelsstr} {{{cleaned_properties}}}]->({aliasto})"
+		return f"CREATE ({aliasfrom})-[:{relationship_type} {{{cleaned_properties}}}]->({aliasto})\n"
 
-def submit(tx: Transaction, sentence: str):
-	tx.run(sentence)
+	@staticmethod
+	def set_labels(nodealias: str, labels: List[str]) -> str:
+
+		labelsstr = ''.join([f":{label}" for label in labels])
+		return f"SET {nodealias}{labelsstr}\n"
+
+	@staticmethod
+	def set_properties(nodealias: str, properties: Dict[str, str]) -> str:
+
+		sentence = "SET "
+		cleaned_properties = Neo4JUtility.clean_properties(properties)
+
+		for key, value in cleaned_properties.items():
+			sentence += f"{nodealias}.{key} = {value}"
+			if key != list(cleaned_properties)[-1]:
+				sentence += ", "
+
+		return f"{sentence}\n"
+
+def submit(tx: Transaction, sentence: str) -> list[Result]:
+	return list(tx.run(sentence))
 
 def import_transaction(tx: Transaction, transaction):
 	"""
 	Receive a web3 transaction create a cypher sentence and execute it.
 	"""
+	transaction = dict(transaction)
 
 	addrfrom = Neo4JUtility.merge_node(["Address"], {"addr": transaction['from']}, "f")
 	if transaction['to']:
@@ -59,7 +90,7 @@ def import_transaction(tx: Transaction, transaction):
 	else:
 		addrto = Neo4JUtility.merge_node(["Address", "`Contract Creation`"], {"addr": transaction['to']}, "t")
 
-	relation = Neo4JUtility.create_relationship("f", ["INTERACTED_WITH"], transaction, "t")
+	relation = Neo4JUtility.create_relationship("f", "INTERACTED_WITH", transaction, "t")
 
 	return list (
 		tx.run(f"{addrfrom}{addrto}{relation}")
@@ -73,30 +104,25 @@ def import_block(tx: Transaction, block: BlockData):
 
 	blocksentence = Neo4JUtility.create_node(["Block"], block, "t")
 	minersentence = Neo4JUtility.merge_node(["Address"], {'addr': block['miner']}, "f")
-	relation = Neo4JUtility.create_relationship("f", ["MINED"], {}, "t")
+	relation = Neo4JUtility.create_relationship("f", "MINED", {}, "t")
 	return list (
 		tx.run(f"{blocksentence}{minersentence}{relation}")
 	)
 
-def argparse_wrapper():
-	parser = argparse.ArgumentParser(
-		description='A tool to vizualize eth blockchain transaction using a graph database'
+def create_contract_relation(tx: Transaction, receipt, transaction):
+	contract = Neo4JUtility.merge_node(['Address'], {'addr': receipt['contractAddress']}, 'c')
+	contract += Neo4JUtility.set_labels('c', ['Contract'])
+	contract += Neo4JUtility.set_properties('c', {'code': transaction['input']})
+	origin = Neo4JUtility.merge_node(['Address'], {'addr': transaction['from']}, 'f')
+	relation = Neo4JUtility.create_relationship('f', "CREATED", {}, 'c')
+
+	return list (
+		tx.run(f"{contract}{origin}{relation}")
 	)
-	subparser = parser.add_subparsers(dest='action', required=True)
-	fetch = subparser.add_parser('fetch', help='fetch blockchain data')
-	fetch.add_argument('-c', '--chain', required=True, help='A chain URI (rpc url)')
-	fetch.add_argument('-r', '--range', required=True, help='Block range to fetch (inclusive) example 3529374-3529379')
-	db = subparser.add_parser('import', help='import collected data to database')
-	db.add_argument('-d', '--database', help='neo4j database url', default='bolt://localhost:7687')
-	db.add_argument('-f', '--file', help='file to parse', required=True)
-	db.add_argument('--user', help='username for neo4j database', default='neo4j')
-	db.add_argument('--password', help='password for neo4j database', default='password')
-	deletedb = subparser.add_parser('delete', help='delete all nodes in your neo4j database')
-	deletedb.add_argument('-d', '--database', help='neo4j database url', default='bolt://localhost:7687')
-	deletedb.add_argument('--user', help='username for neo4j database', default='neo4j')
-	deletedb.add_argument('--password', help='password for neo4j database', default='password')
-	dev = subparser.add_parser('dev', help='want to run your own custom code ?')
-	dev.add_argument('-d', '--database', help='neo4j database url', default='bolt://localhost:7687')
-	dev.add_argument('--user', help='username for neo4j database', default='neo4j')
-	dev.add_argument('--password', help='password for neo4j database', default='password')
-	return parser.parse_args()
+
+def init_web3(rpc_url: str) -> Web3:
+	print(f"Initiating a connection to {rpc_url}")
+	w3 = Web3(Web3.HTTPProvider(rpc_url))
+	if not w3.is_connected():
+		raise BaseException("Could not connect to rpc url", w3)
+	return w3
