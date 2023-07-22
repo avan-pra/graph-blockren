@@ -5,7 +5,7 @@ from neo4j import GraphDatabase
 from tempfile import mkstemp
 from os import fdopen
 
-from utils import *
+from utils.utils import *
 from utils.arg_wrapper import argparse_wrapper
 
 import pickle
@@ -90,8 +90,18 @@ def deletedb(args):
 	print("Done")
 
 def dev(args):
-	from custom.heroctf import heroctf
-	heroctf(args)
+	imported_file = open(args.file, 'rb')
+	storage: ImportStorage = pickle.loads(imported_file.read())
+	w3 = init_web3(storage.rpc_url)
+	for block in storage.blocklist:
+		for transaction in block['transactions']:
+			pass
+			# do stuff
+
+	with GraphDatabase.driver(args.database, auth=(args.user, args.password)) as driver:
+		with driver.session() as session:
+			pass
+			# do other stuff
 
 def main():
 	args = argparse_wrapper()

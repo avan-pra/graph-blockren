@@ -6,12 +6,12 @@ from web3.types import BlockData
 from attributedict.collections import AttributeDict
 from hexbytes import HexBytes
 
-from utils import *
+from utils.utils import *
 
 def heroctf(args):
 	"""
 	feel free to completly remove this function and change it to your needs !
-	(remove it from the main function too !) its made for dev purpose but serves no real usage
+	its made for dev purpose but serves no real usage
 	"""
 	with GraphDatabase.driver(args.database, auth=(args.user, args.password)) as driver:
 		with driver.session() as session:
